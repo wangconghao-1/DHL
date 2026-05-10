@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DHL KB Management System</title>
+    <style>
+        /* 保持原有的 DHL 风格 */
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f4f4; padding: 20px; margin: 0; }
+        
+        /* 新增导航栏样式 */
+        .navbar { 
+            background: #d40511; 
+            color: white; 
+            padding: 15px 30px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .logout-btn {
+            background: #ffcc00;
+            color: #d40511;
+            text-decoration: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .logout-btn:hover { background: #e6b800; }
+
+        .container { max-width: 900px; margin: 30px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .dhl-red { color: #d40511; }
+        .form-group { margin-bottom: 15px; }
+        input, textarea { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        .submit-btn { background: #d40511; color: white; border: none; padding: 12px 25px; font-weight: bold; cursor: pointer; border-radius: 4px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background: #f8f8f8; color: #333; }
+        .status-badge { padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+        .status-draft { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+
+    <div class="navbar">
+        <div style="font-size: 20px; font-weight: bold;">DHL Knowledge Base Portal</div>
+        <a href="/logout" class="logout-btn">LOGOUT</a>
+    </div>
+
+    <div class="container">
+        <h2 class="dhl-red">Create New SOP Draft</h2>
+        <div class="form-group">
+            <input type="text" id="title" placeholder="Enter SOP Title (Required)">
+        </div>
+        <div class="form-group">
+            <textarea id="content" rows="4" placeholder="Paste messy input here..."></textarea>
+        </div>
+        <button class="submit-btn" onclick="submitSOP()">Submit to AI Engine</button>
+
+        <hr style="margin: 40px 0; border: 0; border-top: 1px solid #eee;">
+
+        <h2>Viewer Page (Knowledge Articles)</h2>
+        <input type="text" id="search" placeholder="Search by title..." onkeyup="filterTable()" style="margin-bottom: 20px;">
+        
+        <table id="sopTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th>Date Added</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody">
+                </tbody>
+        </table>
+    </div>
+
+    <script>
+        // 获取数据并渲染表格
+        async function fetchArticles() {
+            try {
+                const response = await fetch('/api/articles');
+                const articles = await response.json();
+                renderTable(articles);
+            } catch (error) {
+                console.error("Error fetching data:", error);
+            }
+        }
+
+        // 提交新 SOP (对应 5.2 Ingestion)
+        async function submitSOP() {
+            const title = document.getElementById('title').value;
+            const content = document.getElementById('content').value;
+
+            if(!title || !content) {
+                alert("Please fill in both Title and Content.");
+                return;
+            }
+
+            await fetch('/api/articles', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    title: title,
+                    content: content,
+                    created_at: new Date().toLocaleDateString()
+                })
+            });
+            
+            // 清空表单并刷新
+            document.getElementById('title').value = '';
+            document.getElementById('content').value = '';
+            fetchArticles();
+        }
+
+        function renderTable(articles) {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = articles.map(a => `
+                <tr>
+                    <td>${a.id}</td>
+                    <td><strong>${a.title}</strong></td>
+                    <td><span class="status-badge status-draft">${a.status}</span></td>
+                    <td>${a.created_at || 'N/A'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // 搜索过滤功能 (对应 A2 Viewer Page)
+        function filterTable() {
+            const query = document.getElementById('search').value.toLowerCase();
+            const rows = document.querySelectorAll('#tableBody tr');
+            rows.forEach(row => {
+                const title = row.children[1].innerText.toLowerCase();
+                row.style.display = title.includes(query) ? '' : 'none';
+            });
+        }
+
+        window.onload = fetchArticles;
+    </script>
+</body>
+</html>

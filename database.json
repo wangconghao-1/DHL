@@ -1,0 +1,17 @@
+{
+    "users": [
+        {
+            "id": 1,
+            "username": "admin",
+            "password": "123123"
+        }
+    ],
+    "articles": [
+        {
+            "title": "UiPath Test",
+            "content": "Hello from UiPath",
+            "id": 1,
+            "status": "Draft"
+        }
+    ]
+}
