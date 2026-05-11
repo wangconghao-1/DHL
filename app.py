@@ -1,186 +1,160 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-import json
-import os
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>DHL Knowledge Base System</title>
+    <style>
+        /* basic */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f4f4; margin: 0; padding: 0; }
+        .navbar { background: #d40511; color: white; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .logout-btn { background: #ffcc00; color: #d40511; text-decoration: none; padding: 8px 15px; border-radius: 4px; font-weight: bold; }
+        .container { max-width: 1000px; margin: 25px auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        
+        /* submit */
+        .form-section { background: #fff9f9; padding: 20px; border-left: 5px solid #d40511; margin-bottom: 30px; }
+        .dhl-red { color: #d40511; margin-top: 0; }
+        input, textarea { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px; }
+        .submit-btn { background: #d40511; color: white; border: none; padding: 12px 25px; font-weight: bold; cursor: pointer; border-radius: 4px; transition: 0.3s; }
+        .submit-btn:hover { background: #b0040e; }
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'dhl_secret_key'
+        /* list */
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background: #f8f8f8; font-weight: bold; }
+        .status-badge { padding: 4px 8px; border-radius: 12px; font-size: 12px; background: #fff3cd; color: #856404; font-weight: bold; }
+        .btn-view { background: #007bff; color: white; border: none; padding: 6px 12px; cursor: pointer; border-radius: 4px; }
 
-DB_FILE = 'database.json'
+        /* model */
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); }
+        .modal-content { background: white; margin: 8% auto; padding: 30px; width: 70%; max-height: 80vh; overflow-y: auto; border-radius: 8px; position: relative; }
+        .close-btn { position: absolute; right: 20px; top: 15px; font-size: 28px; cursor: pointer; color: #999; }
+        .detail-label { font-weight: bold; color: #d40511; display: block; margin: 15px 0 5px 0; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .detail-text { white-space: pre-wrap; background: #fdfdfd; padding: 15px; border: 1px inset #eee; display: block; font-size: 14px; line-height: 1.6; }
+    </style>
+</head>
+<body>
 
-# =========================
-# Login Manager Config
-# =========================
-login_manager = LoginManager()
-login_manager.init_app(app)
-login_manager.login_view = 'login'
+    <div class="navbar">
+        <div style="font-size: 22px; font-weight: bold; letter-spacing: 1px;">DHL KB PORTAL</div>
+        <a href="/logout" class="logout-btn">LOGOUT</a>
+    </div>
 
+    <div class="container">
+        <div class="form-section">
+            <h3 class="dhl-red">Create New SOP Draft</h3>
+            <input type="text" id="title" placeholder="Enter SOP Title (e.g. Onboarding Process)">
+            <textarea id="content" rows="4" placeholder="Paste raw content or messy notes here..."></textarea>
+            <button class="submit-btn" onclick="submitSOP()">SUBMIT TO DATABASE</button>
+        </div>
 
-class User(UserMixin):
-    def __init__(self, id):
-        self.id = id
+        <h3 class="dhl-red">Knowledge Articles List</h3>
+        <input type="text" id="search" placeholder="Quick search by title..." onkeyup="filterTable()">
+        
+        <table id="sopTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
 
+    <div id="detailModal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+            <h2 class="dhl-red">Article Detailed View</h2>
+            <div>
+                <span class="detail-label">Title:</span>
+                <div id="detailTitleText" style="font-size: 18px; font-weight: bold;"></div>
+                
+                <span class="detail-label">Status:</span>
+                <span id="detailStatus" class="status-badge"></span>
 
-@login_manager.user_loader
-def load_user(user_id):
-    return User(user_id)
+                <span class="detail-label">Content:</span>
+                <div id="detailContentText" class="detail-text"></div>
+            </div>
+            <div style="margin-top: 20px; text-align: right;">
+                <button onclick="closeModal()" style="padding: 10px 25px; cursor:pointer; background:#666; color:white; border:none; border-radius:4px;">Close</button>
+            </div>
+        </div>
+    </div>
 
+    <script>
+        let allArticles = [];
 
-# =========================
-# Database Functions
-# =========================
-def read_db():
-    """
-    Read database.json
-    If file doesn't exist, create default structure
-    """
-
-    if not os.path.exists(DB_FILE):
-        default_data = {
-            "users": [
-                {
-                    "id": 1,
-                    "username": "admin",
-                    "password": "123123"
-                }
-            ],
-            "articles": []
+        // 初始化加载
+        async function fetchArticles() {
+            try {
+                const response = await fetch('/api/articles');
+                allArticles = await response.json();
+                renderTable(allArticles);
+            } catch (err) { console.error("Load failed:", err); }
         }
 
-        with open(DB_FILE, 'w') as f:
-            json.dump(default_data, f, indent=4)
+        // --- Submit 功能实现 ---
+        async function submitSOP() {
+            const title = document.getElementById('title').value;
+            const content = document.getElementById('content').value;
 
-        return default_data
+            if(!title || !content) {
+                alert("Please complete both Title and Content fields.");
+                return;
+            }
 
-    with open(DB_FILE, 'r') as f:
-        return json.load(f)
+            const response = await fetch('/api/articles', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ title, content })
+            });
 
+            if(response.ok) {
+                document.getElementById('title').value = '';
+                document.getElementById('content').value = '';
+                fetchArticles(); // 成功后刷新列表
+            }
+        }
 
-def write_db(data):
-    with open(DB_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+        function renderTable(articles) {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = articles.map(a => `
+                <tr>
+                    <td>${a.id}</td>
+                    <td>${a.title}</td>
+                    <td><span class="status-badge">${a.status}</span></td>
+                    <td>
+                        <button class="btn-view" onclick="showDetail(${a.id})">View Details</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
 
+        function showDetail(id) {
+            const article = allArticles.find(a => a.id === id);
+            if (article) {
+                document.getElementById('detailTitleText').innerText = article.title;
+                document.getElementById('detailContentText').innerText = article.content;
+                document.getElementById('detailStatus').innerText = article.status;
+                document.getElementById('detailModal').style.display = 'block';
+            }
+        }
 
-# =========================
-# Routes
-# =========================
+        function closeModal() {
+            document.getElementById('detailModal').style.display = 'none';
+        }
 
-@app.route('/')
-def index():
-    if not current_user.is_authenticated:
-        return redirect(url_for('login'))
+        function filterTable() {
+            const query = document.getElementById('search').value.toLowerCase();
+            const filtered = allArticles.filter(a => a.title.toLowerCase().includes(query));
+            renderTable(filtered);
+        }
 
-    return render_template('index.html')
+        window.onclick = (e) => { if (e.target == document.getElementById('detailModal')) closeModal(); }
+        window.onload = fetchArticles;
+    </script>
+</body>
+</html>
 
-
-# =========================
-# Login
-# =========================
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-
-    if request.method == 'POST':
-
-        username = request.form.get('username')
-        password = request.form.get('password')
-
-        db = read_db()
-
-        users = db.get("users", [])
-
-        user_found = next(
-            (
-                u for u in users
-                if u["username"] == username and u["password"] == password
-            ),
-            None
-        )
-
-        if user_found:
-            user = User(id=str(user_found["id"]))
-            login_user(user)
-
-            return redirect(url_for('index'))
-
-        return "Invalid credentials", 401
-
-    return render_template('login.html')
-
-
-# =========================
-# Logout
-# =========================
-
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('login'))
-
-
-# =========================
-# GET Articles
-# =========================
-
-@app.route('/api/articles', methods=['GET'])
-@login_required
-def get_articles():
-
-    db = read_db()
-
-    return jsonify(db.get("articles", []))
-
-
-# =========================
-# CREATE Article
-# =========================
-
-@app.route('/api/articles', methods=['POST'])
-def create_article():
-
-    try:
-
-        db = read_db()
-
-        articles = db.get("articles", [])
-
-        new_article = request.json
-
-        if not new_article:
-            return jsonify({
-                "error": "No JSON data received"
-            }), 400
-
-        new_article['id'] = len(articles) + 1
-        new_article['status'] = 'Draft'
-
-        articles.append(new_article)
-
-        db["articles"] = articles
-
-        write_db(db)
-
-        return jsonify({
-            "message": "Article created successfully",
-            "article": new_article
-        }), 201
-
-    except Exception as e:
-
-        return jsonify({
-            "error": str(e)
-        }), 500
-
-
-# =========================
-# Run App
-# =========================
-
-if __name__ == '__main__':
-
-    app.run(
-        host='0.0.0.0',
-        port=5000,
-        debug=True
-    )
